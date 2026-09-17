@@ -2,10 +2,9 @@
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Koko ruudun paikallinen maailmankartta</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Interaktiivinen maailmankartta</title>
     <style>
-        /* Pakotetaan näkymä koko ruudun kokoiseksi (100vh ja 100vw) */
         body, html {
             margin: 0;
             padding: 0;
@@ -13,39 +12,164 @@
             background-color: #bad3fc; /* Meren sininen */
             height: 100vh;
             width: 100vw;
+            user-select: none;
+            touch-action: none; /* Estetään selaimen oma skrollaus puhelimella */
         }
-        svg {
-            display: block;
+        /* Karttasäiliö, joka mahdollistaa liikuttamisen */
+        #map-container {
             width: 100vw;
             height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: grab;
+            transform-origin: 0 0; /* Zoomauksen keskipiste vasempaan yläkulmaan laskentaa varten */
+            will-change: transform;
+        }
+        #map-container:active {
+            cursor: grabbing;
+        }
+        svg {
+            width: 100%;
+            height: 100%;
         }
     </style>
 </head>
 <body>
 
-    <!-- Paikallinen maailmankartta suoraan koodissa (Ei vaadi nettiyhteyttä) -->
-    <svg viewBox="0 0 1008 651" xmlns="http://w3.org">
-        <g fill="#fdfbe7" stroke="#4a4a4a" stroke-width="1">
-            <!-- Pohjois-Amerikka ja Grönlanti -->
-            <path d="M110,65 L165,30 L280,35 L430,90 L395,175 L360,165 L330,195 L275,190 L210,310 L160,320 L150,260 L80,240 L50,170 Z" />
-            <!-- Etelä-Amerikka -->
-            <path d="M210,315 L270,305 L310,350 L345,400 L280,570 L240,590 L220,500 L180,390 Z" />
-            <!-- Eurooppa ja Aasia -->
-            <path d="M435,95 L490,65 L570,70 L720,50 L890,60 L960,110 L940,240 L970,300 L910,380 L880,320 L810,390 L755,395 L725,310 L630,340 L585,250 L535,270 L485,185 Z" />
-            <!-- Afrikka -->
-            <path d="M440,240 L515,200 L580,250 L630,285 L600,410 L540,510 L510,510 L475,370 L425,320 Z" />
-            <!-- Australia -->
-            <path d="M800,450 L890,440 L930,500 L890,540 L810,520 Z" />
-            <!-- Iso-Britannia & Irlanti -->
-            <path d="M420,130 L435,125 L430,145 L415,140 Z" />
-            <!-- Madagaskar -->
-            <path d="M605,440 L620,450 L610,490 L595,470 Z" />
-            <!-- Japani -->
-            <path d="M940,180 L955,190 L945,230 L930,210 Z" />
-        </g>
-        <!-- Punainen kohdistuspiste (esim. Helsinki) -->
-        <circle cx="510" cy="120" r="8" fill="#ff2222" stroke="#fff" stroke-width="2" />
-    </svg>
+    <div id="map-container">
+        <!-- Paikallinen maailmankartta -->
+        <svg viewBox="0 0 1008 651" xmlns="http://w3.org">
+            <g fill="#fdfbe7" stroke="#4a4a4a" stroke-width="1">
+                <!-- Pohjois-Amerikka ja Grönlanti -->
+                <path d="M110,65 L165,30 L280,35 L430,90 L395,175 L360,165 L330,195 L275,190 L210,310 L160,320 L150,260 L80,240 L50,170 Z" />
+                <!-- Etelä-Amerikka -->
+                <path d="M210,315 L270,305 L310,350 L345,400 L280,570 L240,590 L220,500 L180,390 Z" />
+                <!-- Eurooppa ja Aasia -->
+                <path d="M435,95 L490,65 L570,70 L720,50 L890,60 L960,110 L940,240 L970,300 L910,380 L880,320 L810,390 L755,395 L725,310 L630,340 L585,250 L535,270 L485,185 Z" />
+                <!-- Afrikka -->
+                <path d="M440,240 L515,200 L580,250 L630,285 L600,410 L540,510 L510,510 L475,370 L425,320 Z" />
+                <!-- Australia -->
+                <path d="M800,450 L890,440 L930,500 L890,540 L810,520 Z" />
+                <!-- Iso-Britannia & Irlanti -->
+                <path d="M420,130 L435,125 L430,145 L415,140 Z" />
+                <!-- Madagaskar -->
+                <path d="M605,440 L620,450 L610,490 L595,470 Z" />
+                <!-- Japani -->
+                <path d="M940,180 L955,190 L945,230 L930,210 Z" />
+            </g>
+            <!-- Helsinki-merkki -->
+            <circle cx="510" cy="120" r="8" fill="#ff2222" stroke="#fff" stroke-width="2" />
+        </svg>
+    </div>
+
+    <!-- Puhdas paikallinen skripti liikuttamiseen ja zoomaamiseen -->
+    <script>
+        const container = document.getElementById('map-container');
+        
+        let scale = 1;
+        let pointX = 0;
+        let pointY = 0;
+        let start = { x: 0, y: 0 };
+        let isDragging = false;
+        let initialPinchDistance = null;
+
+        function updateTransform() {
+            container.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+        }
+
+        // --- HIIRI- JA KOSKETUSLIIKUTUS (Raahaus) ---
+        function onPointerDown(e) {
+            // Puhelimen monisormikosketus (zoom) ohitetaan raahauksessa
+            if (e.touches && e.touches.length > 1) return;
+            
+            isDragging = true;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            start = { x: clientX - pointX, y: clientY - pointY };
+        }
+
+        function onPointerMove(e) {
+            if (!isDragging) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            pointX = clientX - start.x;
+            pointY = clientY - start.y;
+            updateTransform();
+        }
+
+        function onPointerUp() {
+            isDragging = false;
+        }
+
+        // Tapahtumakuuntelijat raahaukselle
+        window.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+        window.addEventListener('touchstart', onPointerDown, { passive: false });
+        window.addEventListener('touchmove', onPointerMove, { passive: false });
+        window.addEventListener('touchend', onPointerUp);
+
+        // --- TIETOKONEEN ZOOM (Hiiren rulla) ---
+        window.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const xs = (e.clientX - pointX) / scale;
+            const ys = (e.clientY - pointY) / scale;
+            
+            // Zoomataan sisään tai ulos rullan suunnasta riippuen
+            if (e.deltaY < 0) {
+                scale *= 1.1;
+            } else {
+                scale /= 1.1;
+            }
+            
+            // Pidetään maksimi- ja minimizoomit järkevinä
+            scale = Math.min(Math.max(1, scale), 10);
+            
+            pointX = e.clientX - xs * scale;
+            pointY = e.clientY - ys * scale;
+            updateTransform();
+        }, { passive: false });
+
+        // --- PUHELIMEN ZOOM (Kahden sormen nipistys) ---
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                isDragging = false; // Lopetetaan yhden sormen raahaus
+                
+                // Lasketaan sormien välinen etäisyys
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+
+                if (initialPinchDistance === null) {
+                    initialPinchDistance = dist;
+                } else {
+                    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                    const xs = (midX - pointX) / scale;
+                    const ys = (midY - pointY) / scale;
+
+                    // Muutetaan mittakaavaa sormien liikkeen mukaan
+                    const factor = dist / initialPinchDistance;
+                    scale *= factor;
+                    scale = Math.min(Math.max(1, scale), 10);
+
+                    pointX = midX - xs * scale;
+                    pointY = midY - ys * scale;
+                    updateTransform();
+                    
+                    initialPinchDistance = dist;
+                }
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchend', (e) => {
+            if (e.touches.length < 2) {
+                initialPinchDistance = null;
+            }
+        });
+    </script>
 
 </body>
 </html>
